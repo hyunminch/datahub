@@ -32,9 +32,9 @@ logger = logging.getLogger(__name__)
 # from google.cloud.logging_v2 import ProtobufEntry
 # AuditLogEntry = ProtobufEntry
 AuditLogEntry = Any
+ExportedAuditLogEntry = Any
 
 DEBUG_INCLUDE_FULL_PAYLOADS = False
-GCP_LOGGING_PAGE_SIZE = 1000
 
 # Handle yearly, monthly, daily, or hourly partitioning.
 # See https://cloud.google.com/bigquery/docs/partitioned-tables.
@@ -242,6 +242,14 @@ class QueryEvent:
             return False
 
     @classmethod
+    def can_parse_exported_entity(cls, entry: ExportedAuditLogEntry) -> bool:
+        try:
+            entry["protopayload_auditlog"]["servicedata_v1_bigquery"]["jobCompletedEvent"]["job"]
+            return True
+        except (KeyError, TypeError):
+            return False
+
+    @classmethod
     def from_entry(cls, entry: AuditLogEntry) -> "QueryEvent":
         user = entry.payload["authenticationInfo"]["principalEmail"]
 
@@ -280,6 +288,46 @@ class QueryEvent:
 
         return queryEvent
 
+    @classmethod
+    def from_exported_entry(cls, entry: ExportedAuditLogEntry) -> "QueryEvent":
+        payload = entry["protopayload_auditlog"]
+
+        user = payload["authenticationInfo"]["principalEmail"]
+
+        job = payload["servicedata_v1_bigquery"]["jobCompletedEvent"]["job"]
+        jobName = _job_name_ref(
+            job.get("jobName", {}).get("projectId"), job.get("jobName", {}).get("jobId")
+        )
+        rawQuery = job["jobConfiguration"]["query"]["query"]
+
+        rawDestTable = job["jobConfiguration"]["query"]["destinationTable"]
+        destinationTable = None
+        if rawDestTable:
+            destinationTable = BigQueryTableRef.from_spec_obj(rawDestTable)
+
+        rawRefTables = job["jobStatistics"].get("referencedTables")
+        referencedTables = None
+        if rawRefTables:
+            referencedTables = [
+                BigQueryTableRef.from_spec_obj(spec) for spec in rawRefTables
+            ]
+
+        queryEvent = QueryEvent(
+            timestamp=entry.timestamp,
+            actor_email=user,
+            query=rawQuery,
+            destinationTable=destinationTable,
+            referencedTables=referencedTables,
+            jobName=jobName,
+            payload=entry.payload if DEBUG_INCLUDE_FULL_PAYLOADS else None,
+        )
+        if not jobName:
+            logger.debug(
+                "jobName from query events is absent. "
+                "Auditlog entry - {logEntry}".format(logEntry=entry)
+            )
+        return queryEvent
+
 
 class BigQueryUsageConfig(BaseUsageConfig):
     projects: Optional[List[str]] = None
@@ -288,6 +336,7 @@ class BigQueryUsageConfig(BaseUsageConfig):
     env: str = builder.DEFAULT_ENV
     table_pattern: Optional[AllowDenyPattern] = None
 
+    log_page_size: Optional[pydantic.PositiveInt] = 1000
     query_log_delay: Optional[pydantic.PositiveInt] = None
     max_query_duration: timedelta = timedelta(minutes=15)
 
