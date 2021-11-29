@@ -65,7 +65,7 @@ timestamp < "{end_time}"
 """.strip()
 
 
-def bq_audit_logs_query_template(project: str, dataset: str):
+def bq_audit_logs_query_template(project: str, dataset: str) -> str:
     return textwrap.dedent(
         f"""
         SELECT
@@ -244,7 +244,7 @@ class BigQuerySource(SQLAlchemySource):
         for entry in entries:
             event: Optional[QueryEvent] = None
             try:
-                if QueryEvent.can_parse_exported_entity(entry):
+                if QueryEvent.can_parse_exported_entry(entry):
                     event = QueryEvent.from_exported_entry(entry)
                 else:
                     raise RuntimeError("Unable to parse log entry as QueryEvent.")
