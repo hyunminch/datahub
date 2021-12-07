@@ -62,3 +62,4 @@ class BaseTimeWindowConfig(ConfigModel):
                 'timezone is not UTC; try adding a "Z" to the value e.g. "2021-07-20T00:00:00Z"'
             )
         return v
+
