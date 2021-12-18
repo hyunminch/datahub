@@ -284,7 +284,7 @@ class BigQuerySource(SQLAlchemySource):
                 )
             else:
                 query = bigquery_audit_metadata_query_template(
-                    dataset, self.config.use_date_sharded_audit_log_tables
+                    dataset, use_date_sharded_tables=False
                 ).format(start_time=start_time, end_time=end_time)
             query_job = bigquery_client.query(query)
 
